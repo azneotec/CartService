@@ -1,4 +1,4 @@
-# MongoDB for running CartService on its own (see Makefile: `make infra-up`).
+# MongoDB and Redis for running CartService on its own (see Makefile: `make infra-up`).
 # Host port defaults to 27018 so it can run beside the root stack's MongoDB (27017); override with
 # MONGO_PORT, and keep MONGODB_URI in .env pointing at the same port.
 name: cart-service
@@ -20,6 +20,20 @@ services:
       timeout: 5s
       retries: 20
       start_period: 15s
+
+  # Host port defaults to 6380 for the same reason (the root stack's Redis owns 6379); override with REDIS_PORT
+  # and keep REDIS_PORT in .env pointing at the same port. No persistence: it only caches carts MongoDB has.
+  redis:
+    image: redis:7.4
+    container_name: cart-service-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
 volumes:
   mongo-data:
