@@ -128,6 +128,21 @@ make up          # make down stops the databases
 
 A standalone run has Eureka switched off, so it starts but cannot validate tokens, look up products or place orders. Use it for working on the app; use the root stack to call the endpoints.
 
+### Run in Docker
+
+The `Dockerfile` builds and runs only CartService (multi-stage, JRE 17, non-root). MongoDB, Redis, Eureka and the two services it calls are not included, so point the container at them. Inside a container `localhost` is the container itself, hence `host.docker.internal` for the databases and Eureka running on your machine:
+
+```bash
+docker build -t cart-service .
+docker run --rm -p 8003:8003 \
+  -e MONGODB_URI='mongodb://root:password@host.docker.internal:27017/cart_service?authSource=admin' \
+  -e REDIS_HOST=host.docker.internal \
+  -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://host.docker.internal:8761/eureka/ \
+  cart-service
+```
+
+The container is marked unhealthy while Redis is unreachable (see above). A container registers in Eureka under its own address, so other services running on the host may not be able to reach it back; for that, use the root `make` stack.
+
 ### Configuration
 
 | Variable | Default | Meaning |
@@ -137,7 +152,7 @@ A standalone run has Eureka switched off, so it starts but cannot validate token
 | `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` | Redis connection (1s timeouts) |
 | `EUREKA_CLIENT_ENABLED` | `true` | register with and read from Eureka (`http://localhost:8761/eureka/`) |
 
-Set `cart.cache.ttl` and `cart.clients.*-timeout` in `application.properties`.
+The same names work as container environment variables (Eureka's address is `EUREKA_CLIENT_SERVICEURL_DEFAULTZONE`). Set `cart.cache.ttl` and `cart.clients.*-timeout` in `application.properties`.
 
 ## Tests
 
