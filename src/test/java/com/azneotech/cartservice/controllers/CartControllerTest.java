@@ -4,6 +4,7 @@ import com.azneotech.cartservice.clients.IAuthClient;
 import com.azneotech.cartservice.configs.SecurityConfig;
 import com.azneotech.cartservice.dtos.CheckoutItemResponseDto;
 import com.azneotech.cartservice.dtos.CheckoutSummaryResponseDto;
+import com.azneotech.cartservice.dtos.OrderResponseDto;
 import com.azneotech.cartservice.dtos.ValidateTokenResponseDto;
 import com.azneotech.cartservice.exceptions.CartItemNotFoundException;
 import com.azneotech.cartservice.exceptions.CheckoutConflictException;
@@ -228,6 +229,57 @@ class CartControllerTest {
                         .content("{\"deliveryAddress\":" + ADDRESS + ",\"paymentMethod\":\"COD\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("Your cart is empty"));
+    }
+
+    // ---- checkout confirm (places the order)
+
+    @Test
+    void confirmCheckout_is201WithTheOrderAndForwardsTheToken() throws Exception {
+        OrderResponseDto order = new OrderResponseDto();
+        order.setOrderNumber("ORD-20261024-ABCDEFGH");
+        order.setStatus("PENDING_PAYMENT");
+        order.setTotalAmount(new BigDecimal("219.90"));
+        when(cartService.placeOrder(eq(7L), eq(USER_TOKEN), any(), eq(PaymentMethod.UPI))).thenReturn(order);
+
+        mockMvc.perform(post("/cart/checkout/confirm").header("Authorization", USER_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deliveryAddress\":" + ADDRESS + ",\"paymentMethod\":\"UPI\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.orderNumber").value("ORD-20261024-ABCDEFGH"))
+                .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"))
+                .andExpect(jsonPath("$.totalAmount").value(219.90));
+    }
+
+    @Test
+    void confirmCheckout_requiresTheUserRoleAndAValidBody() throws Exception {
+        mockMvc.perform(post("/cart/checkout/confirm").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deliveryAddress\":" + ADDRESS + ",\"paymentMethod\":\"UPI\"}"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/cart/checkout/confirm").header("Authorization", "Bearer admin-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deliveryAddress\":" + ADDRESS + ",\"paymentMethod\":\"UPI\"}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/cart/checkout/confirm").header("Authorization", USER_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"paymentMethod\":\"UPI\"}"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(cartService);
+    }
+
+    @Test
+    void confirmCheckout_priceChangeIs409AndOrderServiceOutageIs503() throws Exception {
+        when(cartService.placeOrder(any(), any(), any(), any()))
+                .thenThrow(new CheckoutConflictException("Prices changed since you last viewed your cart, review the new total of 24.00 and confirm again"))
+                .thenThrow(new DownstreamUnavailableException("order-management-service"));
+        String body = "{\"deliveryAddress\":" + ADDRESS + ",\"paymentMethod\":\"COD\"}";
+
+        mockMvc.perform(post("/cart/checkout/confirm").header("Authorization", USER_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("confirm again")));
+        mockMvc.perform(post("/cart/checkout/confirm").header("Authorization", USER_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isServiceUnavailable());
     }
 
 }

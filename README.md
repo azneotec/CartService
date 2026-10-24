@@ -1,6 +1,6 @@
 # CartService
 
-Shopping cart service for the scaler-project workspace. Logged-in users (`ROLE_USER`) add products to a cart, review it, and check out. MongoDB is the source of truth for carts and Redis caches each user's cart for fast reads.
+Shopping cart service for the scaler-project workspace. Logged-in users (`ROLE_USER`) add products to a cart, review it, and check out; confirming checkout places the order with order-management-service. MongoDB is the source of truth for carts and Redis caches each user's cart for fast reads.
 
 Spring Boot 3.3.3, Java 17, registered in Eureka as `cart-service` (port 8003, a second instance can use 9003).
 
@@ -10,10 +10,11 @@ Spring Boot 3.3.3, Java 17, registered in Eureka as `cart-service` (port 8003, a
 |---|---|
 | `user-auth-service` | validates the bearer token on every request (`POST /auth/validateToken`) |
 | `product-catalog-service` | confirms a product exists and supplies its title and price (`GET /products/{id}`) |
+| `order-management-service` | places the order when a customer confirms checkout (`POST /orders`, with the customer's own token) |
 | MongoDB | stores one cart document per user in the `cart_service` database |
 | Redis | cache-aside copy of each cart, key `cart:<userId>` |
 
-Both services are reached by their Eureka names, so the endpoints only work with Eureka running.
+All three services are reached by their Eureka names, so the endpoints only work with Eureka running.
 
 ## API
 
@@ -26,7 +27,8 @@ All endpoints need `Authorization: Bearer <token>` from `POST /auth/login` on us
 | `PUT /cart/items/{productId}` | Set a quantity: `{"quantity": 4}`. |
 | `DELETE /cart/items/{productId}` | Remove one product. |
 | `DELETE /cart` | Empty the cart (204). |
-| `POST /cart/checkout` | Validate and price the cart for purchase (see below). |
+| `POST /cart/checkout` | Validate and price the cart for purchase (see below). Places nothing. |
+| `POST /cart/checkout/confirm` | Place the order for what checkout quoted (201, see below). |
 
 Cart endpoints return the updated cart:
 
@@ -65,7 +67,22 @@ curl -X POST localhost:8003/cart/checkout \
 
 `paymentMethod` is one of `COD`, `CARD`, `UPI`, `NET_BANKING`; `addressLine2` is optional. Checkout re-prices every line from the catalog and returns the items, `total`, the address and the payment method. A line whose price differs from what the cart held has `priceChanged: true` (so does the summary), and the cart's stored prices are updated to match.
 
-It does **not** place an order, take payment or empty the cart: there is no OrderService yet.
+This step only quotes: it places no order, takes no payment and keeps the cart's contents.
+
+### Placing the order
+
+`POST /cart/checkout/confirm` takes the same body as `POST /cart/checkout`. It re-prices the cart the same way, and then:
+
+- if any price differs from what the cart held, it answers **409** and tells you the new total. The cart already holds the new prices, so confirming again goes through;
+- otherwise it asks order-management-service to place the order (forwarding your token, so the order is yours), sending the products, quantities, address, payment method and the total just quoted. OMS prices the products from the catalog itself and refuses with 409 if its total differs.
+
+It answers **201** with the order confirmation OMS returns (`orderNumber`, `status`, items, `totalAmount`, address, and `paymentLink` once PaymentService has created one; see order-management-service's README). Cash on delivery comes back `CONFIRMED`, online payments `PENDING_PAYMENT`. The ordered lines are then taken out of the cart; a line you changed after it was priced stays. If emptying the cart fails the order stands and the failure is only logged.
+
+```bash
+curl -X POST localhost:8003/cart/checkout/confirm \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"deliveryAddress": {...}, "paymentMethod": "UPI"}'
+```
 
 ### Errors
 
@@ -83,8 +100,8 @@ Validation failures add `fieldErrors` (field name to message).
 | 401 | missing or invalid token |
 | 403 | valid token without `ROLE_USER` |
 | 404 | unknown product, or product not in the cart |
-| 409 | checkout with an empty cart or products the catalog no longer has; a cart edited concurrently |
-| 503 | user-auth-service or product-catalog-service unreachable |
+| 409 | checkout with an empty cart or products the catalog no longer has; a cart edited concurrently; confirming after a price changed, or an order OMS refuses |
+| 503 | user-auth-service, product-catalog-service or order-management-service unreachable |
 
 ## Caching and consistency
 
@@ -95,7 +112,7 @@ Validation failures add `fieldErrors` (field name to message).
 
 ## Running it
 
-The easiest way is the stack in the parent directory, which starts MySQL, MongoDB, Redis, Kafka, Eureka, UserAuthService, ProductCatalogService and two CartService instances:
+The easiest way is the stack in the parent directory, which starts MySQL, MongoDB, Redis, Kafka, Eureka, UserAuthService, ProductCatalogService, two CartService instances and two OrderManagementService instances:
 
 ```bash
 cd ..            # scaler-project/
@@ -109,7 +126,7 @@ cp .env.example .env
 make up          # make down stops the databases
 ```
 
-A standalone run has Eureka switched off, so it starts but cannot validate tokens or look up products. Use it for working on the app; use the root stack to call the endpoints.
+A standalone run has Eureka switched off, so it starts but cannot validate tokens, look up products or place orders. Use it for working on the app; use the root stack to call the endpoints.
 
 ### Configuration
 

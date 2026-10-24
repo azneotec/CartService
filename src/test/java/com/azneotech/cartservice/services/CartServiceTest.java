@@ -1,6 +1,11 @@
 package com.azneotech.cartservice.services;
 
+import com.azneotech.cartservice.clients.IOrderClient;
 import com.azneotech.cartservice.clients.IProductCatalogClient;
+import com.azneotech.cartservice.dtos.OrderResponseDto;
+import com.azneotech.cartservice.dtos.PlaceOrderRequestDto;
+import com.azneotech.cartservice.exceptions.DownstreamUnavailableException;
+import org.mockito.ArgumentCaptor;
 import com.azneotech.cartservice.dtos.ProductCatalogDto;
 import com.azneotech.cartservice.dtos.CheckoutSummaryResponseDto;
 import com.azneotech.cartservice.dtos.DeliveryAddressDto;
@@ -44,6 +49,7 @@ class CartServiceTest {
     @Mock CartRepository cartRepository;
     @Mock CartCache cartCache;
     @Mock IProductCatalogClient catalogClient;
+    @Mock IOrderClient orderClient;
     @InjectMocks CartService cartService;
 
     @BeforeEach
@@ -321,6 +327,127 @@ class CartServiceTest {
                 () -> cartService.checkout(USER_ID, address(), PaymentMethod.COD));
 
         assertTrue(e.getMessage().contains("[1, 3]"), e.getMessage());
+    }
+
+    // ---- placeOrder
+
+    private static final String BEARER = "Bearer user-token";
+
+    private static OrderResponseDto order() {
+        OrderResponseDto order = new OrderResponseDto();
+        order.setOrderNumber("ORD-20261024-ABCDEFGH");
+        order.setStatus("PENDING_PAYMENT");
+        return order;
+    }
+
+    @Test
+    void placeOrder_sendsExactlyWhatWasQuotedAndForwardsTheCallersToken() {
+        when(cartRepository.findById(USER_ID)).thenReturn(Optional.of(cartWith(line(1, "10.00", 2), line(2, "5.00", 1))));
+        when(catalogClient.getProduct(1L)).thenReturn(product(1, "10.00"));
+        when(catalogClient.getProduct(2L)).thenReturn(product(2, "5.00"));
+        when(orderClient.placeOrder(any(), any())).thenReturn(order());
+
+        OrderResponseDto placed = cartService.placeOrder(USER_ID, BEARER, address(), PaymentMethod.UPI);
+
+        assertEquals("ORD-20261024-ABCDEFGH", placed.getOrderNumber());
+        ArgumentCaptor<PlaceOrderRequestDto> request = ArgumentCaptor.forClass(PlaceOrderRequestDto.class);
+        verify(orderClient).placeOrder(org.mockito.ArgumentMatchers.eq(BEARER), request.capture());
+        assertEquals(new BigDecimal("25.00"), request.getValue().getExpectedTotal());
+        assertEquals(PaymentMethod.UPI, request.getValue().getPaymentMethod());
+        assertEquals("Pune", request.getValue().getDeliveryAddress().getCity());
+        assertEquals(java.util.List.of(1L, 2L), request.getValue().getItems().stream().map(i -> i.getProductId()).toList());
+        assertEquals(java.util.List.of(2, 1), request.getValue().getItems().stream().map(i -> i.getQuantity()).toList());
+    }
+
+    @Test
+    void placeOrder_takesTheOrderedLinesOutOfTheCart() {
+        Cart cart = cartWith(line(1, "10.00", 2), line(2, "5.00", 1));
+        when(cartRepository.findById(USER_ID)).thenReturn(Optional.of(cart));
+        when(catalogClient.getProduct(1L)).thenReturn(product(1, "10.00"));
+        when(catalogClient.getProduct(2L)).thenReturn(product(2, "5.00"));
+        when(orderClient.placeOrder(any(), any())).thenReturn(order());
+
+        cartService.placeOrder(USER_ID, BEARER, address(), PaymentMethod.COD);
+
+        verify(cartRepository).save(cart);
+        assertTrue(cart.getItems().isEmpty());
+        verify(cartCache).evict(USER_ID);
+    }
+
+    @Test
+    void placeOrder_keepsALineTheCustomerChangedAfterItWasPriced() {
+        Cart cart = cartWith(line(1, "10.00", 2));
+        Cart reloaded = cartWith(line(1, "10.00", 3), line(9, "1.00", 1));
+        when(cartRepository.findById(USER_ID)).thenReturn(Optional.of(cart), Optional.of(reloaded));
+        when(catalogClient.getProduct(1L)).thenReturn(product(1, "10.00"));
+        when(orderClient.placeOrder(any(), any())).thenReturn(order());
+
+        cartService.placeOrder(USER_ID, BEARER, address(), PaymentMethod.COD);
+
+        assertEquals(java.util.List.of(1L, 9L), reloaded.getItems().stream().map(CartItem::getProductId).toList());
+        assertEquals(3, reloaded.findItem(1L).orElseThrow().getQuantity());
+    }
+
+    @Test
+    void placeOrder_priceChange_refusesAndLeavesTheNewPricesInTheCart() {
+        Cart cart = cartWith(line(1, "10.00", 2));
+        when(cartRepository.findById(USER_ID)).thenReturn(Optional.of(cart));
+        when(catalogClient.getProduct(1L)).thenReturn(product(1, "12.00"));
+
+        CheckoutConflictException e = assertThrows(CheckoutConflictException.class,
+                () -> cartService.placeOrder(USER_ID, BEARER, address(), PaymentMethod.COD));
+
+        assertTrue(e.getMessage().contains("24.00"), e.getMessage());
+        assertEquals(new BigDecimal("12.00"), cart.findItem(1L).orElseThrow().getUnitPrice());
+        verifyNoInteractions(orderClient);
+    }
+
+    @Test
+    void placeOrder_emptyCart_isRejectedWithoutCallingTheOrderService() {
+        when(cartRepository.findById(USER_ID)).thenReturn(Optional.empty());
+
+        assertThrows(CheckoutConflictException.class, () -> cartService.placeOrder(USER_ID, BEARER, address(), PaymentMethod.COD));
+
+        verifyNoInteractions(orderClient);
+    }
+
+    @Test
+    void placeOrder_orderRefused_keepsTheCart() {
+        Cart cart = cartWith(line(1, "10.00", 2));
+        when(cartRepository.findById(USER_ID)).thenReturn(Optional.of(cart));
+        when(catalogClient.getProduct(1L)).thenReturn(product(1, "10.00"));
+        when(orderClient.placeOrder(any(), any())).thenThrow(new CheckoutConflictException("These products are no longer available: [1]"));
+
+        assertThrows(CheckoutConflictException.class, () -> cartService.placeOrder(USER_ID, BEARER, address(), PaymentMethod.COD));
+
+        assertEquals(1, cart.getItems().size());
+        verify(cartRepository, never()).save(any());
+    }
+
+    @Test
+    void placeOrder_orderServiceDown_keepsTheCart() {
+        Cart cart = cartWith(line(1, "10.00", 2));
+        when(cartRepository.findById(USER_ID)).thenReturn(Optional.of(cart));
+        when(catalogClient.getProduct(1L)).thenReturn(product(1, "10.00"));
+        when(orderClient.placeOrder(any(), any())).thenThrow(new DownstreamUnavailableException("order-management-service"));
+
+        assertThrows(DownstreamUnavailableException.class, () -> cartService.placeOrder(USER_ID, BEARER, address(), PaymentMethod.COD));
+
+        assertEquals(1, cart.getItems().size());
+        verify(cartRepository, never()).save(any());
+    }
+
+    @Test
+    void placeOrder_failureToEmptyTheCartDoesNotHideThePlacedOrder() {
+        when(cartRepository.findById(USER_ID))
+                .thenReturn(Optional.of(cartWith(line(1, "10.00", 2))))
+                .thenThrow(new org.springframework.dao.DataAccessResourceFailureException("mongo down"));
+        when(catalogClient.getProduct(1L)).thenReturn(product(1, "10.00"));
+        when(orderClient.placeOrder(any(), any())).thenReturn(order());
+
+        OrderResponseDto placed = cartService.placeOrder(USER_ID, BEARER, address(), PaymentMethod.COD);
+
+        assertEquals("ORD-20261024-ABCDEFGH", placed.getOrderNumber());
     }
 
 }

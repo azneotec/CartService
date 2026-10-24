@@ -1,10 +1,14 @@
 package com.azneotech.cartservice.services;
 
+import com.azneotech.cartservice.clients.IOrderClient;
 import com.azneotech.cartservice.clients.IProductCatalogClient;
 import com.azneotech.cartservice.dtos.ProductCatalogDto;
 import com.azneotech.cartservice.dtos.CheckoutItemResponseDto;
 import com.azneotech.cartservice.dtos.CheckoutSummaryResponseDto;
 import com.azneotech.cartservice.dtos.DeliveryAddressDto;
+import com.azneotech.cartservice.dtos.OrderItemRequestDto;
+import com.azneotech.cartservice.dtos.OrderResponseDto;
+import com.azneotech.cartservice.dtos.PlaceOrderRequestDto;
 import com.azneotech.cartservice.exceptions.CartItemNotFoundException;
 import com.azneotech.cartservice.exceptions.CheckoutConflictException;
 import com.azneotech.cartservice.exceptions.InvalidQuantityException;
@@ -13,6 +17,7 @@ import com.azneotech.cartservice.models.Cart;
 import com.azneotech.cartservice.models.CartItem;
 import com.azneotech.cartservice.models.PaymentMethod;
 import com.azneotech.cartservice.repos.CartRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -26,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
+@Slf4j
 @Service
 public class CartService implements ICartService {
 
@@ -35,11 +41,13 @@ public class CartService implements ICartService {
     private final CartRepository cartRepository;
     private final CartCache cartCache;
     private final IProductCatalogClient catalogClient;
+    private final IOrderClient orderClient;
 
-    public CartService(CartRepository cartRepository, CartCache cartCache, IProductCatalogClient catalogClient) {
+    public CartService(CartRepository cartRepository, CartCache cartCache, IProductCatalogClient catalogClient, IOrderClient orderClient) {
         this.cartRepository = cartRepository;
         this.cartCache = cartCache;
         this.catalogClient = catalogClient;
+        this.orderClient = orderClient;
     }
 
     @Override
@@ -147,6 +155,43 @@ public class CartService implements ICartService {
                 .deliveryAddress(deliveryAddress)
                 .paymentMethod(paymentMethod)
                 .build();
+    }
+
+    @Override
+    public OrderResponseDto placeOrder(Long userId, String authorization, DeliveryAddressDto deliveryAddress, PaymentMethod paymentMethod) {
+        CheckoutSummaryResponseDto summary = checkout(userId, deliveryAddress, paymentMethod);
+        if (summary.isPriceChanged()) {
+            // checkout() has just written the new prices to the cart, so confirming again goes through.
+            throw new CheckoutConflictException("Prices changed since you last viewed your cart, review the new total of "
+                    + summary.getTotal() + " and confirm again");
+        }
+
+        List<OrderItemRequestDto> lines = summary.getItems().stream()
+                .map(item -> new OrderItemRequestDto(item.getProductId(), item.getQuantity()))
+                .toList();
+        OrderResponseDto order = orderClient.placeOrder(authorization, PlaceOrderRequestDto.builder()
+                .items(lines)
+                .deliveryAddress(deliveryAddress)
+                .paymentMethod(paymentMethod)
+                .expectedTotal(summary.getTotal())
+                .build());
+
+        removeOrderedLines(userId, lines, order.getOrderNumber());
+        return order;
+    }
+
+    /**
+     * Takes the ordered lines out of the cart. A line the customer changed after the order was priced stays, so
+     * nothing they added in the meantime is lost. The order exists by now, so a failure here is logged, not thrown:
+     * answering an error would invite the customer to order the same cart again.
+     */
+    private void removeOrderedLines(Long userId, List<OrderItemRequestDto> ordered, String orderNumber) {
+        try {
+            update(userId, cart -> cart.getItems().removeIf(item -> ordered.stream().anyMatch(line ->
+                    line.getProductId().equals(item.getProductId()) && line.getQuantity() == item.getQuantity())));
+        } catch (RuntimeException e) {
+            log.error("Order {} was placed but user {}'s cart could not be emptied", orderNumber, userId, e);
+        }
     }
 
     /**
