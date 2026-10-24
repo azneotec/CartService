@@ -25,6 +25,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -104,6 +105,40 @@ class OrderManagementClientTest {
         for (int i = 0; i < 4; i++) {
             assertThrows(DownstreamUnavailableException.class, () -> client.placeOrder("Bearer t", request()));
         }
+    }
+
+    @Test
+    void placeOrder_connectionFailureIsAnOutage() {
+        server.expect(requestTo(URL)).andRespond(withException(new java.io.IOException("connection reset")));
+
+        assertThrows(DownstreamUnavailableException.class, () -> client.placeOrder("Bearer t", request()));
+    }
+
+    @Test
+    void placeOrder_noRegisteredInstanceIsAnOutage() {
+        // What the @LoadBalanced RestTemplate throws when Eureka has no order-management-service.
+        server.expect(requestTo(URL)).andRespond(req -> {
+            throw new IllegalStateException("No instances available for order-management-service");
+        });
+
+        assertThrows(DownstreamUnavailableException.class, () -> client.placeOrder("Bearer t", request()));
+    }
+
+    @Test
+    void placeOrder_confirmationWithoutAnOrderNumberIsAnOutage() {
+        server.expect(requestTo(URL)).andRespond(withSuccess("{\"status\":\"CONFIRMED\"}", MediaType.APPLICATION_JSON));
+
+        assertThrows(DownstreamUnavailableException.class, () -> client.placeOrder("Bearer t", request()));
+    }
+
+    @Test
+    void placeOrder_conflictWithoutAMessageStillSaysWhatToDo() {
+        server.expect(requestTo(URL)).andRespond(withStatus(org.springframework.http.HttpStatus.CONFLICT)
+                .contentType(MediaType.APPLICATION_JSON).body("{\"status\":409,\"error\":\"Conflict\"}"));
+
+        CheckoutConflictException e = assertThrows(CheckoutConflictException.class, () -> client.placeOrder("Bearer t", request()));
+
+        assertTrue(e.getMessage().contains("try again"), e.getMessage());
     }
 
 }

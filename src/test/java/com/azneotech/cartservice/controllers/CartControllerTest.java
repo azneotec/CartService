@@ -282,4 +282,13 @@ class CartControllerTest {
                 .andExpect(status().isServiceUnavailable());
     }
 
+    @Test
+    void confirmCheckout_unknownPaymentMethod_is400() throws Exception {
+        mockMvc.perform(post("/cart/checkout/confirm").header("Authorization", USER_TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"deliveryAddress\":" + ADDRESS + ",\"paymentMethod\":\"BITCOIN\"}"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(cartService);
+    }
+
 }

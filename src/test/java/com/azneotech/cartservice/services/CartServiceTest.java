@@ -450,4 +450,70 @@ class CartServiceTest {
         assertEquals("ORD-20261024-ABCDEFGH", placed.getOrderNumber());
     }
 
+    @Test
+    void placeOrder_productGoneFromCatalog_namesItAndNeverCallsTheOrderService() {
+        when(cartRepository.findById(USER_ID)).thenReturn(Optional.of(cartWith(line(1, "1.00", 1), line(2, "1.00", 1))));
+        when(catalogClient.getProduct(1L)).thenThrow(new ProductNotFoundException(1L));
+        when(catalogClient.getProduct(2L)).thenReturn(product(2, "1.00"));
+
+        CheckoutConflictException e = assertThrows(CheckoutConflictException.class,
+                () -> cartService.placeOrder(USER_ID, BEARER, address(), PaymentMethod.COD));
+
+        assertTrue(e.getMessage().contains("[1]"), e.getMessage());
+        verifyNoInteractions(orderClient);
+    }
+
+    @Test
+    void placeOrder_catalogDown_neverCallsTheOrderService() {
+        when(cartRepository.findById(USER_ID)).thenReturn(Optional.of(cartWith(line(1, "1.00", 1))));
+        when(catalogClient.getProduct(1L)).thenThrow(new DownstreamUnavailableException("product-catalog-service"));
+
+        assertThrows(DownstreamUnavailableException.class, () -> cartService.placeOrder(USER_ID, BEARER, address(), PaymentMethod.COD));
+
+        verifyNoInteractions(orderClient);
+        verify(cartRepository, never()).save(any());
+    }
+
+    @Test
+    void placeOrder_cartIsOnlyEmptiedAfterTheOrderExists() {
+        when(cartRepository.findById(USER_ID)).thenReturn(Optional.of(cartWith(line(1, "10.00", 1))));
+        when(catalogClient.getProduct(1L)).thenReturn(product(1, "10.00"));
+        when(orderClient.placeOrder(any(), any())).thenReturn(order());
+
+        cartService.placeOrder(USER_ID, BEARER, address(), PaymentMethod.COD);
+
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(orderClient, cartRepository);
+        inOrder.verify(orderClient).placeOrder(any(), any());
+        inOrder.verify(cartRepository).save(any());
+    }
+
+    @Test
+    void placeOrder_emptyingTheCartRetriesWhenAnotherInstanceWroteFirst() {
+        Cart quoted = cartWith(line(1, "10.00", 2));
+        Cart firstReload = cartWith(line(1, "10.00", 2));
+        Cart secondReload = cartWith(line(1, "10.00", 2));
+        when(cartRepository.findById(USER_ID)).thenReturn(Optional.of(quoted), Optional.of(firstReload), Optional.of(secondReload));
+        when(catalogClient.getProduct(1L)).thenReturn(product(1, "10.00"));
+        when(orderClient.placeOrder(any(), any())).thenReturn(order());
+        when(cartRepository.save(any(Cart.class)))
+                .thenThrow(new OptimisticLockingFailureException("stale"))
+                .thenAnswer(call -> call.getArgument(0));
+
+        cartService.placeOrder(USER_ID, BEARER, address(), PaymentMethod.COD);
+
+        verify(cartRepository, times(2)).save(any());
+        assertTrue(secondReload.getItems().isEmpty());
+        verify(cartCache).evict(USER_ID);
+    }
+
+    @Test
+    void placeOrder_returnsTheOrderServicesConfirmationUnchanged() {
+        OrderResponseDto confirmation = order();
+        when(cartRepository.findById(USER_ID)).thenReturn(Optional.of(cartWith(line(1, "10.00", 1))));
+        when(catalogClient.getProduct(1L)).thenReturn(product(1, "10.00"));
+        when(orderClient.placeOrder(any(), any())).thenReturn(confirmation);
+
+        assertSame(confirmation, cartService.placeOrder(USER_ID, BEARER, address(), PaymentMethod.CARD));
+    }
+
 }
