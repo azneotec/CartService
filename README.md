@@ -126,7 +126,7 @@ cp .env.example .env
 make up          # make down stops the databases
 ```
 
-A standalone run has Eureka switched off, so it starts but cannot validate tokens, look up products or place orders. Use it for working on the app; use the root stack to call the endpoints.
+The app registers with Eureka on `http://localhost:8761` (start one first, e.g. `make eureka` in the repo root), because token validation, product lookup and order placement all resolve Eureka names. The `.env` template keeps it on; with `EUREKA_CLIENT_ENABLED='false'` the app starts and is not registered, but it cannot validate tokens, look up products or place orders.
 
 ### Run in Docker
 
