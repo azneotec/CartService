@@ -1,0 +1,33 @@
+meta {
+  name: Add Second Item
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/cart/items
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "productId": {{productId2}},
+    "quantity": 1
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.totalQuantity: eq 6
+}
+
+tests {
+  test("cart has two lines", function () {
+    expect(res.body.items).to.have.lengthOf(2);
+  });
+}

@@ -1,0 +1,31 @@
+meta {
+  name: Get Cart
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/cart
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.totalQuantity: eq 6
+}
+
+tests {
+  test("total is the sum of the line totals", function () {
+    const sum = res.body.items.reduce((s, i) => s + Number(i.lineTotal), 0);
+    expect(Number(res.body.total)).to.be.closeTo(sum, 0.01);
+  });
+}
+
+docs {
+  Served from the Redis copy when present (cache-aside), otherwise from MongoDB.
+}

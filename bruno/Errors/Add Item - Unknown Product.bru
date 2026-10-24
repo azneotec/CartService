@@ -1,0 +1,30 @@
+meta {
+  name: Add Item - Unknown Product
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/cart/items
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "productId": 999999999,
+    "quantity": 1
+  }
+}
+
+assert {
+  res.status: eq 404
+}
+
+docs {
+  The catalog does not know the product, so nothing is added.
+}

@@ -1,0 +1,23 @@
+meta {
+  name: Clear Cart
+  type: http
+  seq: 1
+}
+
+delete {
+  url: {{baseUrl}}/cart
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  Empties the cart. Idempotent: an already-empty cart is fine.
+}

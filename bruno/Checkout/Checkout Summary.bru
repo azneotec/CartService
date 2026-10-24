@@ -1,0 +1,56 @@
+meta {
+  name: Checkout Summary
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/cart/checkout
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "deliveryAddress": {
+      "fullName": "Asha Verma",
+      "phoneNumber": "+91 98765 43210",
+      "addressLine1": "42, Lakeview Apartments, MG Road",
+      "addressLine2": "Near City Mall",
+      "city": "Bengaluru",
+      "state": "Karnataka",
+      "postalCode": "560001",
+      "country": "India"
+    },
+    "paymentMethod": "COD"
+  }
+}
+
+script:post-response {
+  if (res.status === 200) {
+    bru.setVar("quotedTotal", res.body.total);
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.priceChanged: eq false
+  res.body.paymentMethod: eq COD
+}
+
+tests {
+  test("summary echoes the address and the cart contents", function () {
+    expect(res.body.deliveryAddress.city).to.equal("Bengaluru");
+    expect(res.body.items).to.have.lengthOf(1);
+    expect(res.body.totalQuantity).to.equal(2);
+  });
+}
+
+docs {
+  Re-prices every line from the catalog, writes any new prices back to the cart and returns the summary.
+  Places no order and keeps the cart's contents. `priceChanged` is true when a price moved since the cart last held it.
+}

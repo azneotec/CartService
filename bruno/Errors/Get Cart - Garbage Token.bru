@@ -1,0 +1,19 @@
+meta {
+  name: Get Cart - Garbage Token
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/cart
+  body: none
+  auth: none
+}
+
+script:pre-request {
+  req.setHeader("Authorization", "Bearer not-a-real-token");
+}
+
+assert {
+  res.status: eq 401
+}

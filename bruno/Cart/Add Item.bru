@@ -1,0 +1,40 @@
+meta {
+  name: Add Item
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/cart/items
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "productId": {{productId}},
+    "quantity": 2
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.totalQuantity: eq 2
+}
+
+tests {
+  test("line holds the catalog price snapshot", function () {
+    const line = res.body.items.find(i => i.productId === bru.getVar("productId"));
+    expect(line).to.exist;
+    expect(line.quantity).to.equal(2);
+    expect(Number(line.lineTotal)).to.be.closeTo(Number(line.unitPrice) * 2, 0.01);
+  });
+}
+
+docs {
+  Validates the product with product-catalog-service and snapshots its title, image and price.
+}

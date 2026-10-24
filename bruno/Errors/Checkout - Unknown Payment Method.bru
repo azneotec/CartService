@@ -1,0 +1,39 @@
+meta {
+  name: Checkout - Unknown Payment Method
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/cart/checkout
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "deliveryAddress": {
+      "fullName": "Asha Verma",
+      "phoneNumber": "+91 98765 43210",
+      "addressLine1": "42, Lakeview Apartments, MG Road",
+      "addressLine2": "Near City Mall",
+      "city": "Bengaluru",
+      "state": "Karnataka",
+      "postalCode": "560001",
+      "country": "India"
+    },
+    "paymentMethod": "BITCOIN"
+  }
+}
+
+assert {
+  res.status: eq 400
+}
+
+docs {
+  Valid values: COD, CARD, UPI, NET_BANKING.
+}

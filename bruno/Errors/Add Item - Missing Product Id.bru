@@ -1,0 +1,31 @@
+meta {
+  name: Add Item - Missing Product Id
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/cart/items
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "quantity": 1
+  }
+}
+
+assert {
+  res.status: eq 400
+}
+
+tests {
+  test("names the offending field", function () {
+    expect(res.body.fieldErrors).to.have.property("productId");
+  });
+}

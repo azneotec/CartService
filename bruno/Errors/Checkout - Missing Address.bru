@@ -1,0 +1,31 @@
+meta {
+  name: Checkout - Missing Address
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/cart/checkout
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "paymentMethod": "COD"
+  }
+}
+
+assert {
+  res.status: eq 400
+}
+
+tests {
+  test("names the offending field", function () {
+    expect(res.body.fieldErrors).to.have.property("deliveryAddress");
+  });
+}

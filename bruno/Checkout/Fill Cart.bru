@@ -1,0 +1,36 @@
+meta {
+  name: Fill Cart
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/cart/items
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "productId": {{productId}},
+    "quantity": 2
+  }
+}
+
+script:pre-request {
+  // Start from a known cart so the totals below are predictable.
+  await bru.runRequest("Cart/Clear Cart");
+}
+
+assert {
+  res.status: eq 200
+  res.body.totalQuantity: eq 2
+}
+
+docs {
+  Setup for the checkout requests: a cart holding two of `productId`.
+}

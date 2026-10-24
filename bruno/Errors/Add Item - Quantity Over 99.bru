@@ -1,0 +1,30 @@
+meta {
+  name: Add Item - Quantity Over 99
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/cart/items
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "productId": {{productId}},
+    "quantity": 100
+  }
+}
+
+assert {
+  res.status: eq 400
+}
+
+docs {
+  A line holds at most 99 units.
+}

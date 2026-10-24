@@ -1,0 +1,33 @@
+meta {
+  name: Update Quantity
+  type: http
+  seq: 7
+}
+
+put {
+  url: {{baseUrl}}/cart/items/{{productId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "quantity": 4
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.totalQuantity: eq 5
+}
+
+tests {
+  test("line quantity is set, not added", function () {
+    const line = res.body.items.find(i => i.productId === bru.getVar("productId"));
+    expect(line.quantity).to.equal(4);
+  });
+}

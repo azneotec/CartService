@@ -1,0 +1,33 @@
+meta {
+  name: Add Item - Quantity Zero
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/cart/items
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "productId": {{productId}},
+    "quantity": 0
+  }
+}
+
+assert {
+  res.status: eq 400
+  res.body.message: eq Validation failed
+}
+
+tests {
+  test("names the offending field", function () {
+    expect(res.body.fieldErrors).to.have.property("quantity");
+  });
+}

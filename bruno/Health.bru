@@ -1,0 +1,21 @@
+meta {
+  name: Health
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/actuator/health
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.status: eq UP
+}
+
+docs {
+  Liveness probe. Public. Answers 503 (DOWN) while Redis is unreachable, because the Redis health
+  contributor is on; the cart endpoints themselves keep working without Redis.
+}

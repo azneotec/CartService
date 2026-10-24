@@ -1,0 +1,35 @@
+meta {
+  name: Login
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{authUrl}}/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "{{userEmail}}",
+    "password": "{{userPassword}}"
+  }
+}
+
+script:post-response {
+  if (res.status === 200) {
+    bru.setVar("token", res.body.token);
+    bru.setVar("userId", res.body.user.id);
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.tokenType: eq Bearer
+}
+
+docs {
+  Stores the JWT as `token`; the cart requests send it as `Authorization: Bearer`. The cart service
+  validates it against user-auth-service on every call and uses the user id inside it as the cart owner.
+}

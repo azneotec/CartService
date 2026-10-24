@@ -1,0 +1,26 @@
+meta {
+  name: Remove Item
+  type: http
+  seq: 8
+}
+
+delete {
+  url: {{baseUrl}}/cart/items/{{productId2}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.totalQuantity: eq 4
+}
+
+tests {
+  test("the line is gone", function () {
+    expect(res.body.items.map(i => i.productId)).to.not.include(bru.getVar("productId2"));
+  });
+}

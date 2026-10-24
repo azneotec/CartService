@@ -1,0 +1,34 @@
+meta {
+  name: List Products
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{catalogUrl}}/products
+  body: none
+  auth: none
+}
+
+script:post-response {
+  if (res.status === 200 && res.body.length >= 2) {
+    bru.setVar("productId", res.body[0].id);
+    bru.setVar("productId2", res.body[1].id);
+    bru.setVar("productPrice", res.body[0].price);
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("catalog has at least two products", function () {
+    expect(res.body.length).to.be.at.least(2);
+  });
+}
+
+docs {
+  Picks the first two catalog products as `productId` / `productId2` for the cart requests.
+  Needs at least two products in product-catalog-service (`catalogUrl`).
+}

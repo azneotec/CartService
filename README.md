@@ -154,6 +154,24 @@ The container is marked unhealthy while Redis is unreachable (see above). A cont
 
 The same names work as container environment variables (Eureka's address is `EUREKA_CLIENT_SERVICEURL_DEFAULTZONE`). Set `cart.cache.ttl` and `cart.clients.*-timeout` in `application.properties`.
 
+## Bruno collection
+
+`bruno/` is a [Bruno](https://www.usebruno.com) collection for the API. Open that folder in Bruno, pick the `Local` environment (`Local-9003` for the second instance) and run the folders top to bottom, or from a terminal:
+
+```bash
+cd bruno && npx @usebruno/cli run --env Local -r
+```
+
+| Folder | Does |
+|---|---|
+| `Setup` | signs up a throwaway user on user-auth-service, logs in (stores `token`), picks two catalog products |
+| `Cart` | add, merge, update, remove and clear, asserting totals and the price snapshot |
+| `Checkout` | the checkout summary for a cash-on-delivery order; places no order |
+| `Errors` | 401, 400, 404 and 409 cases |
+| `Order` | `POST /cart/checkout/confirm`; the only folder that needs order-management-service, so it fails with a 503 while that is down |
+
+Needs Eureka, user-auth-service, product-catalog-service (two or more products), MongoDB and Redis running, i.e. the root `make up`. Each run signs up a new user.
+
 ## Tests
 
 ```bash

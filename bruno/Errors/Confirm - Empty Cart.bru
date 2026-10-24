@@ -1,0 +1,44 @@
+meta {
+  name: Confirm - Empty Cart
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/cart/checkout/confirm
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "deliveryAddress": {
+      "fullName": "Asha Verma",
+      "phoneNumber": "+91 98765 43210",
+      "addressLine1": "42, Lakeview Apartments, MG Road",
+      "addressLine2": "Near City Mall",
+      "city": "Bengaluru",
+      "state": "Karnataka",
+      "postalCode": "560001",
+      "country": "India"
+    },
+    "paymentMethod": "COD"
+  }
+}
+
+script:pre-request {
+  await bru.runRequest("Cart/Clear Cart");
+}
+
+assert {
+  res.status: eq 409
+  res.body.message: eq Your cart is empty
+}
+
+docs {
+  Also what a repeated Confirm Order gets once the first call emptied the cart: no order is placed twice.
+}

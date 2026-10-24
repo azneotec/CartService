@@ -1,0 +1,54 @@
+meta {
+  name: Confirm Order
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/cart/checkout/confirm
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "deliveryAddress": {
+      "fullName": "Asha Verma",
+      "phoneNumber": "+91 98765 43210",
+      "addressLine1": "42, Lakeview Apartments, MG Road",
+      "addressLine2": "Near City Mall",
+      "city": "Bengaluru",
+      "state": "Karnataka",
+      "postalCode": "560001",
+      "country": "India"
+    },
+    "paymentMethod": "COD"
+  }
+}
+
+script:pre-request {
+  // Start from a known cart (two of productId).
+  await bru.runRequest("Checkout/Fill Cart");
+}
+
+assert {
+  res.status: eq 201
+}
+
+tests {
+  test("order confirmation comes back", function () {
+    expect(res.body.orderNumber).to.be.a("string").and.not.empty;
+  });
+}
+
+docs {
+  Places the order with order-management-service using your own token (`expectedTotal` is the freshly quoted total).
+  201 returns OMS's confirmation, then the ordered lines leave the cart. `paymentLink` is usually absent at this point.
+
+  This is the only folder that needs order-management-service running (`make oms` in the repo root, or `make up`). 409 means prices changed or OMS refused
+  the order and the cart is untouched, so re-run; 503 means OMS is down.
+}

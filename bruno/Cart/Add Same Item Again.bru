@@ -1,0 +1,38 @@
+meta {
+  name: Add Same Item Again
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/cart/items
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "productId": {{productId}},
+    "quantity": 3
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.totalQuantity: eq 5
+}
+
+tests {
+  test("merges into the existing line", function () {
+    expect(res.body.items).to.have.lengthOf(1);
+    expect(res.body.items[0].quantity).to.equal(5);
+  });
+}
+
+docs {
+  Adding a product that is already in the cart adds to its quantity (max 99 per line) and refreshes the price.
+}
